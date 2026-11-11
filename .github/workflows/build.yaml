@@ -1,37 +1,76 @@
+
 name: Build AURA Music APK
 
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+    steps:
+      # 1. Download repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Install Java 17
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: gradle/actions/setup-gradle@v4
+      # 3. Setup Gradle
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      # GitHub's Ubuntu runners already ship with the Android SDK, so no separate setup action is needed.
-      - name: Accept licenses and make sure SDK 35 is present
+      # 4. Setup Android SDK
+      - name: Install Android SDK 35
         run: |
+          set -eu
+
           SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$SDKM" --licenses > /dev/null || true
-          "$SDKM" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Build debug APK
-        run: gradle assembleDebug --stacktrace
+          if [ ! -f "$SDKM" ]; then
+            echo "ERROR: Android SDK manager not found"
+            find "$ANDROID_HOME/cmdline-tools" -name sdkmanager
+            exit 1
+          fi
 
-      - uses: actions/upload-artifact@v4
+          yes | "$SDKM" --sdk_root="$ANDROID_HOME" --licenses > /dev/null
+
+          "$SDKM" --sdk_root="$ANDROID_HOME" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      # 5. Build Android APK
+      - name: Build AURA Music APK
+        run: |
+          gradle assembleDebug --stacktrace
+
+      # 6. Check APK
+      - name: Verify APK
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+
+          if [ ! -f "$APK" ]; then
+            echo "APK generation failed!"
+            exit 1
+          fi
+
+          ls -lh "$APK"
+
+      # 7. Upload APK
+      - name: Upload AURA Music APK
+        uses: actions/upload-artifact@v4
         with:
           name: AURA-Music-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
